@@ -1,5 +1,6 @@
 - Market cap: Market capitalization = Current market value of all outstanding stock shares of a company
   - Formula: Market Cap = Share Price x Total number of outstanding shares
+  - Outstanding shares only change from corporate actions: Stock issuances, buybacks, stock splits
 
 - Weighting method: Company weighting = Company market cap / Total of all market caps
 
