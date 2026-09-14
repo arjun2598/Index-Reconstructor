@@ -1,5 +1,7 @@
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -8,6 +10,10 @@ import yfinance as yf
 INDEX_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 START = "2026-08-01"
 SHARES_LOOKBACK_DAYS = 400 # Filings are usually quarterly, so we look back far enough to catch one before START
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+RAW_DIR = DATA_DIR / "raw"      # Exact data from yfinance
+CLEAN_DIR = DATA_DIR / "clean"  # Clean dataframes from raw data
 
 # Scrapes current constituent stocks from Wikipedia
 def fetch_constituents():
@@ -64,11 +70,11 @@ def implied_shares(ticker):
     return (mc / px).dropna()                   # Market cap / price = shares
 
 
-# Download shares outstanding, aligned to the price window
-def fetch_shares(tickers, index):
+# Download shares outstanding as filed, one row per filing date
+def fetch_shares(tickers, window_start):
     # get_shares_full only returns points on filing dates, so we start early enough
     # that every ticker has at least one observation before the price history begins
-    start = (index.min() - pd.Timedelta(days=SHARES_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    start = (window_start - pd.Timedelta(days=SHARES_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     def one(ticker):
         try:
@@ -90,7 +96,7 @@ def fetch_shares(tickers, index):
         series = dict(ex.map(one, tickers))     # 503 separate calls, run in parallel
 
     # A ticker is short if it has no filings at all, or none before our period starts
-    gaps = [t for t, s in series.items() if s is None or s.index.min() > index.min()]
+    gaps = [t for t, s in series.items() if s is None or s.index.min() > window_start]
 
     def patch(ticker):
         return ticker, implied_shares(ticker)
@@ -106,40 +112,71 @@ def fetch_shares(tickers, index):
         # Real filings win, derived values only fill where filings are absent
         series[ticker] = extra if filed is None else filed.combine_first(extra)
 
-    df = pd.DataFrame({t: s for t, s in series.items() if s is not None})  # Union of all filing dates
+    return pd.DataFrame({t: s for t, s in series.items() if s is not None})  # Union of all filing dates
+
+# Flatten the (ticker, field) columns down to one close price per ticker
+def clean_closes(prices):
+    return prices.xs("Close", axis=1, level=1).sort_index()
+
+# Spread sparse filing dates across every trading day in the price window
+def align_shares(raw_shares, index):
     return (
-        df.reindex(df.index.union(index))       # Merge any missing dates from our period as empty rows
-        .ffill()                                # Each filed value holds until the next filing
-        .reindex(index)                         # Keep only our period
+        raw_shares.reindex(raw_shares.index.union(index))  # Merge any missing dates from our period as empty rows
+        .ffill()                                           # Each filed value holds until the next filing
+        .reindex(index)                                    # Keep only our period
     )
 
+# Read the parquet if we already have it, otherwise fetch, save, and return
+def cached(path, fetch, refresh=False):
+    if path.exists() and not refresh:
+        print(f"  load  {path.name}")
+        return pd.read_parquet(path)
 
-stocks = fetch_constituents()
-tickers = stocks["Ticker"].tolist()
-print(f"Fetched {len(stocks)} constituents")
-print(stocks.head())
-
-prices = fetch_prices(tickers)
-print(prices.head())
-aapl = prices["AAPL"]
-print(f"Period: {aapl.index.min().date()} to {aapl.index.max().date()}")
-
-shares = fetch_shares(tickers, aapl.index)
-print(f"\nShares outstanding for {shares.shape[1]}/{len(tickers)} tickers")
-
-missing = sorted(set(tickers) - set(shares.columns))
-if missing:
-    print(f"No shares data for: {missing}")
-
-print(shares.iloc[:3, :4])
+    print(f"  fetch {path.name}")
+    df = fetch()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path)
+    return df
 
 
-nan_cells = int(shares.isna().sum().sum())
-nan_cols = shares.columns[shares.isna().any()].tolist()   # any() defaults to axis=0, so per column
-nan_rows = int(shares.isna().any(axis=1).sum())           # axis=1 collapses across columns, so per row
+def build(refresh=False):
+    print("raw:")
+    stocks = cached(RAW_DIR / "constituents.parquet", fetch_constituents, refresh)
+    tickers = stocks["Ticker"].tolist()
 
-if nan_cells == 0:
-    print(f"No NaNs: all {shares.shape[0]} x {shares.shape[1]} cells filled")
-else:
-    print(f"{nan_cells} NaN cells across {nan_rows} rows, in: {nan_cols}")
-    print(shares.loc[shares.isna().any(axis=1), nan_cols])  # Only the rows and columns at fault
+    prices = cached(RAW_DIR / "prices.parquet", lambda: fetch_prices(tickers), refresh)
+    index = prices.index                        # The trading calendar everything else aligns to
+
+    raw_shares = cached(
+        RAW_DIR / "shares.parquet", lambda: fetch_shares(tickers, index.min()), refresh
+    )
+
+    # Clean layer is cheap to rebuild, so we always redo it rather than caching a stale version
+    print("clean:")
+    closes = clean_closes(prices)
+    shares = align_shares(raw_shares, index)
+
+    CLEAN_DIR.mkdir(parents=True, exist_ok=True)
+    closes.to_parquet(CLEAN_DIR / "closes.parquet")
+    shares.to_parquet(CLEAN_DIR / "shares.parquet")
+    print(f"  wrote closes.parquet {closes.shape} and shares.parquet {shares.shape}")
+
+    return stocks, closes, shares
+
+
+if __name__ == "__main__":
+    refresh = "--refresh" in sys.argv           # Force a re-fetch, ignoring whatever is cached
+    stocks, closes, shares = build(refresh)
+
+    print(f"\n{len(stocks)} constituents | {closes.index.min().date()} to {closes.index.max().date()}")
+    print(closes.iloc[:3, :4])
+
+    nan_cells = int(shares.isna().sum().sum())
+    nan_cols = shares.columns[shares.isna().any()].tolist()   # any() defaults to axis=0, so per column
+    nan_rows = int(shares.isna().any(axis=1).sum())           # axis=1 collapses across columns, so per row
+
+    if nan_cells == 0:
+        print(f"\nNo NaNs: all {shares.shape[0]} x {shares.shape[1]} cells filled")
+    else:
+        print(f"\n{nan_cells} NaN cells across {nan_rows} rows, in: {nan_cols}")
+        print(shares.loc[shares.isna().any(axis=1), nan_cols])  # Only the rows and columns at fault
