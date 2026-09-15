@@ -3,9 +3,9 @@
 ## Current state
 
 - Window: 1179 trading days, 2022-01-03 to 2026-09-15
-- Correlation of daily returns: 0.99974
-- Daily tracking error: stdev 2.51bp, mean +0.13bp, worst day 14.1bp
-- Cumulative: ours +60.34%, published +58.06%, gap +228.3bp
+- Correlation of daily returns: 0.99978
+- Daily tracking error: stdev 2.34bp, mean +0.03bp, worst day 14.1bp
+- Cumulative: ours +58.51%, published +58.12%, gap +39.6bp
 
 - Benchmark is `^GSPC`, the price-return index
   - Excludes dividends, matching our `auto_adjust=False` price pull
@@ -13,18 +13,27 @@
   - `SPY` and `VOO` are funds with their own tracking error, so they measure someone else's error as well as ours
 
 - By year, all of it now small and mixed in sign
-  - 2022: TE 2.78bp, mean -0.06bp, gap -0.14pp
-  - 2023: TE 2.33bp, mean +0.39bp, gap +1.23pp
-  - 2024: TE 1.98bp, mean +0.34bp, gap +1.04pp
-  - 2025: TE 2.34bp, mean +0.06bp, gap +0.14pp
-  - 2026: TE 3.17bp, mean -0.19bp, gap -0.37pp
-  - 2026 is the weakest year, consistent with recently removed companies being the biggest remaining hole
+  - 2022: TE 2.56bp, mean -0.17bp, gap -0.38pp
+  - 2023: TE 1.97bp, mean +0.22bp, gap +0.67pp
+  - 2024: TE 1.77bp, mean +0.22bp, gap +0.68pp
+  - 2025: TE 2.26bp, mean +0.00bp, gap -0.00pp
+  - 2026: TE 3.18bp, mean -0.20bp, gap -0.40pp
+  - Mean daily difference across the whole window is +0.03bp, which is indistinguishable from zero. There is no systematic drift left
 
 - Judge changes by TE stdev, not the cumulative gap
   - Yearly errors of opposite sign cancel, so the gap can look small while the underlying errors are large
   - This happened: fixing renames improved every daily metric while the cumulative gap got worse, because a compensating error had been removed
 
 ## Fixes, in order of impact
+
+- Point-in-time membership, which removed the drift
+  - Until this we held today's 503 members for the whole window. Additions were corrected from `Date added`, but companies removed from the index were missing entirely, and they typically underperform before being dropped, so excluding them flattered our return
+  - Wikipedia's "Historical components of the S&P 500" page carries 407 additions and removals with effective dates back to 1976
+  - `fetch_changes` scrapes it. `load_raw` expands the universe from 503 to 589 tickers, adding every name added or removed during the window, since without their prices the data simply is not there
+  - `membership_timeline` walks backwards from today's list: a change on date d means that before d the index held the removed name and not the added one, so stepping back over it undoes both sides
+  - Gap +228.3bp to +39.6bp, mean daily +0.13bp to +0.03bp, TE stdev 2.51 to 2.34bp, correlation 0.99974 to 0.99978
+  - This confirmed what had been a hypothesis: the residual drift was the missing removed companies, not float or anything else
+  - Bug worth remembering: the first version walked the timeline newest first, so the oldest membership set was applied last and overwrote everything. The index showed a constant 312 members. Iterate oldest first so each later entry overwrites only the tail it applies to
 
 - Split adjustment, the largest error found
   - `auto_adjust=False` excludes dividends only. Yahoo's Close is split-adjusted either way, while `get_shares_full` reports as-filed counts, so market cap was wrong by the split ratio for every day before each split
@@ -34,11 +43,11 @@
   - TE stdev 7.75 to 4.06bp, worst day 54.2 to 16.0bp, correlation 0.99746 to 0.99950
   - 2024 went from the worst year (10.20bp) to near the best (3.47bp)
 
-- Addition timing, the main cause of the drift
-  - 77 of today's 503 members joined after 2022-01-03, roughly 15 a year, and all were held from day one
-  - Companies are added because they grew enough to qualify, so holding them early captures the run-up that earned them a place, which the real index never participated in
-  - Fix: `Date added` was already scraped and then discarded. `build_membership` in cleaning.py turns it into a boolean frame and `market_caps` applies it with `.where()`, so a non-member goes NaN and drops out of the weights
-  - Gap +588.4 to +228.3bp, TE stdev 4.06 to 2.51bp, mean +0.33 to +0.13bp, correlation 0.99950 to 0.99974
+- Addition timing, since superseded by full membership
+  - 77 of today's 503 members joined after 2022-01-03, roughly 15 a year, and all were held from day one. Companies are added because they grew enough to qualify, so holding them early captures the run-up that earned them a place
+  - Fixed using `Date added`, which was already scraped and then discarded
+  - Gap +588.4 to +228.3bp, TE stdev 4.06 to 2.51bp, mean +0.33 to +0.13bp
+  - The change log now supplies both sides, so `Date added` is no longer the source. This step is kept here because it isolated how much of the drift was additions (roughly 60%) versus removals (the rest)
 
 - Ticker renames
   - Yahoo carries price history back under a new symbol but files share counts only from the rename date, leaving prices with no share count for the earlier period
@@ -60,34 +69,37 @@
 
 ## Remaining defects
 
-- Companies removed from the index, the likely source of the residual +228bp
-  - Roughly 77 companies left the index over the window and are missing from our panel entirely
-  - They typically underperformed before being dropped, so excluding them flatters our return
-  - Hypothesis, not measured: the direction fits and the additions half behaved as predicted, but we cannot confirm without the data
-  - Wikipedia no longer carries a changes table, only the component list, so this needs a different source
+- Companies Yahoo will not price, about 3% of the index
+  - We now know who was a member and when, but 47 tickers have no price data at all: 17297 member-days, roughly 15 names at any time
+  - EA 1148d, CTRA 1089d, HOLX 1069d, K 989d, IPG 980d are the largest
+  - These are companies acquired (ATVI, CERN, XLNX, PXD), failed (SIVB, FRC, SBNY) or taken private. Yahoo drops the symbol once it stops trading
+  - They are correctly marked as members and simply fall out of the weights, so the error is bounded and named rather than hidden
+  - Ticker reuse is a live hazard here: SBNY returns 521 rows starting 2024, which is a different company using Signature Bank's old symbol after it failed in 2023. The membership mask handles it, since we only use data while a name was a member, but a naive universe expansion would inject the wrong prices
+  - The unpriceable fraction will grow the further back the window goes
 
 - Float adjustment
   - S&P weights by shares available to the public. We use full shares outstanding, so closely-held companies are overweighted: LVS 0.449, TMUS 0.453, WMT 0.547
   - Median float ratio is 0.994, so most names are almost fully floated and this only bites on a minority
   - Yahoo `floatShares` is usable for 485 of 503. 14 report a float above shares outstanding (dual-class names given a combined figure), BRK-B reports 0.001 which would delete Berkshire, 3 are missing
-  - Measured on the current panel: TE 2.51 to 2.28bp. It does not touch the drift, `mean_bp` stays at +0.13
-  - Deferred: it is a current scalar with no history, so applying today's ratio across 1179 days assumes insider stakes never changed
+  - Measured TE 2.51 to 2.28bp, but that was before the membership fix and has not been re-run. Treat it as indicative only
+  - It does not touch the drift, and there is now almost no drift left to touch, so the case for it is weaker than it was
+  - Deferred: it is a current scalar with no history, so applying today's ratio assumes insider stakes never changed
   - S&P uses a banded and rounded Investable Weight Factor anyway, so even perfect float would not reproduce official weights
 
 - No divisor
   - S&P adjusts its divisor on every buyback, issuance and membership change so the published level does not jump on non-price events. We have no divisor, so those events leak into our series
   - Detectable without external data: `(weights.shift(1) * closes.pct_change()).sum(axis=1)` against `caps.sum(axis=1).pct_change()`. Price cancels algebraically between the two, so any difference is a share-count change
-  - 446 such days over the window, largest 2024-06-25 at -890.4bp and 2024-06-26 at +847.5bp
+  - 443 such days over the window, largest 2024-06-25 at -885.6bp and 2024-06-26 at +843.5bp
 
 - Share filings near split boundaries
   - The split factor is correct, but Yahoo's filing dates do not always sit on the expected side of a split
   - TPL filed a post-split count one day early and a pre-split count on the split date, so our cap read $39.67B then $4.42B against a true ~$13B
-  - 64 member-days across 38 tickers move the share count more than 1.5x in a day. Often self-cancelling, so invisible in the cumulative gap but real noise now that TE is 2.51bp
+  - 67 member-days across 40 tickers move the share count more than 1.5x in a day. Often self-cancelling, so invisible in the cumulative gap but real noise now that TE is 2.51bp
   - `check_share_jumps` reports these. It is a heuristic, not a missing-data check: a genuine large issuance can trip it
   - Fix would be to widen the split boundary a few days and take whichever filing agrees with its neighbours
 
 - Spinoff listing lag
-  - 42 member-days across 11 tickers where a company lists and trades before Yahoo files its first share count. PSKY 33d is most of it
+  - 45 member-days across 10 tickers where a company lists and trades before Yahoo files its first share count. PSKY 33d is most of it
   - No old symbol to fall back on, so a fix means carrying the first known value backwards, which asserts a share count for days before it was reported
 
 - Share count timing
@@ -99,7 +111,7 @@
 - Methods that did not work
   - Leave-one-out (rebuild without a stock, see if the gap shrinks) is invalid here. The published index still holds that stock, so removing it creates a mismatch by construction, conflating a stock's genuine return contribution with mis-weighting
   - It produced two false leads: MSFT as the cause of 2024, NVDA as the cause of the drift
-  - A flat year-by-year TE gradient was read as evidence against survivorship. Wrong test: survivorship shows up as drift in `mean_bp` and the cumulative gap, not as year-to-year noise
+  - A flat year-by-year TE gradient was read as evidence against survivorship. Wrong test: survivorship shows up as drift in `mean_bp` and the cumulative gap, not as year-to-year noise. Survivorship was in fact the whole of the remaining drift, as the membership fix later showed
 
 - Ruled out
   - MRNA +177% on 2026-08-19: no split, share count unchanged either side. A genuine news move, present in the published index too
@@ -107,7 +119,7 @@
   - Our market caps are not the problem. Cross-checked against Yahoo's own `marketCap` for the nine largest names, every one matches within 1%
 
 - What is not diverging
-  - Correlation 0.99974 over 1179 days means the construction is sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
+  - Correlation 0.99978 over 1179 days means the construction is sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
   - The residual is data quality, not index logic
 
 - Housekeeping

@@ -33,6 +33,7 @@ FIX_LADDER = [
     ("Ticker\nrenames", 7.75),
     ("Split\nadjustment", 4.06),
     ("Addition\ntiming", 2.51),
+    ("Point-in-time\nmembership", 2.34),
 ]
 
 def style(ax, title, subtitle=None, ylabel=None):
@@ -89,22 +90,24 @@ def plot_tracking(level, benchmark):
 
     top.plot(cmp.index, cmp["published"], color=THEIRS, linewidth=2, label="Published (^GSPC)")
     top.plot(cmp.index, cmp["reconstructed"], color=OURS, linewidth=2, label="Reconstruction")
+    correlation = cmp.our_return.corr(cmp.their_return)
     style(top, "The reconstruction tracks the index",
-          "Both rebased to 100 at 2022-01-03. Correlation of daily returns 0.99974", "Index level")
+          f"Both rebased to 100 at {cmp.index[0].date()}. "
+          f"Correlation of daily returns {correlation:.5f}", "Index level")
     top.legend(frameon=False, labelcolor=MUTED, fontsize=9.5, loc="upper left")
 
     bottom.axhline(0, color=GRID, linewidth=1)
     bottom.fill_between(gap.index, gap, color=OURS, alpha=0.22, linewidth=0)
     bottom.plot(gap.index, gap, color=OURS, linewidth=1.4)
     style(bottom, "", "Cumulative difference, percentage points", "pp")
-    bottom.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:+.0f}"))
+    bottom.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:+.1f}"))
     save(fig, "2_tracking.png")
 
 
 # 3. What the split mismatch did to a single weight
 def plot_nvda_split(closes, shares, membership):
-    raw = load_raw()[2]                         # Filed share counts, before split adjustment
-    unadjusted = clean_shares(raw, closes.index)
+    *_, raw_shares, _, _ = load_raw()           # Filed share counts, before split adjustment
+    unadjusted = clean_shares(raw_shares, closes.index)
 
     def weight_of(share_panel, ticker="NVDA"):
         caps = (closes * share_panel).where(membership)

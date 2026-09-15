@@ -3,6 +3,7 @@
 from pathlib import Path
 
 INDEX_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies" # Source to fetch constituent stock information
+CHANGES_URL = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"  # Additions and removals by date
 BENCHMARK = "^GSPC"         # The published price-return index, no dividends, matching auto_adjust=False
 
 START = "2022-01-01" # Start of time period

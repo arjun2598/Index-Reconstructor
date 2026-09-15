@@ -48,28 +48,51 @@ def clean_benchmark(raw_benchmark, index):
     return raw_benchmark["Close"].reindex(index)
 
 
-# A company only belongs to the index from the day it joined. Holding it earlier would
-# capture the run-up that earned it a place, which the real index never participated in.
-def build_membership(stocks, index, columns):
-    member = pd.DataFrame(True, index=index, columns=columns)
+# Point-in-time membership, walked backwards from today's list through the change log.
+# A change on date d means that before d the index held the removed name and not the
+# added one, so stepping back over it undoes both sides.
+def membership_timeline(current, changes):
+    members = set(current)
+    timeline = []                               # (valid_from, members) newest first
 
-    for row in stocks.itertuples():
-        if row.Ticker not in member.columns or pd.isna(row.Added):
-            continue                            # No date means it predates our window
-        
-        member.loc[member.index < row.Added, row.Ticker] = False
+    for date, group in sorted(changes.groupby("date"), reverse=True):
+        timeline.append((date, frozenset(members)))
+        for row in group.itertuples():
+            if isinstance(row.added, str):
+                members.discard(row.added)      # Was not a member before this date
+                
+            if isinstance(row.removed, str):
+                members.add(row.removed)        # Still a member before this date
+
+    timeline.append((pd.Timestamp.min, frozenset(members)))
+    return timeline                             # Last entry covers everything earlier
+
+
+# Turn the timeline into a dates x tickers boolean frame
+def build_membership(stocks, changes, index, columns):
+    timeline = membership_timeline(stocks["Ticker"], changes)
+    member = pd.DataFrame(False, index=index, columns=columns)
+
+    # Oldest first, so each later entry overwrites the tail it applies to
+    for valid_from, members in reversed(timeline):
+        rows = member.index >= valid_from
+        if not rows.any():
+            continue
+        held = [t for t in members if t in member.columns]
+        member.loc[rows, held] = True
+        member.loc[rows, [c for c in member.columns if c not in members]] = False
 
     return member
 
 
 # Build every clean dataframe and write it to data/clean
-def build_clean(stocks, prices, raw_shares, raw_benchmark, splits):
+def build_clean(stocks, changes, prices, raw_shares, raw_benchmark, splits):
     index = prices.index                    # The trading calendar everything else aligns to
 
     closes = clean_closes(prices)
     shares = adjust_shares(clean_shares(raw_shares, index), splits)
     benchmark = clean_benchmark(raw_benchmark, index)
-    membership = build_membership(stocks, index, closes.columns)
+    membership = build_membership(stocks, changes, index, closes.columns)
 
     CLEAN_DIR.mkdir(parents=True, exist_ok=True)
     closes.to_parquet(CLEAN_DIR / "closes.parquet")

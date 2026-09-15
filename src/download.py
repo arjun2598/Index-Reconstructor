@@ -9,6 +9,7 @@ import yfinance as yf
 
 from config import (
     BENCHMARK,
+    CHANGES_URL,
     INDEX_URL,
     MAX_WORKERS,
     RAW_DIR,
@@ -47,6 +48,20 @@ def fetch_constituents():
     stocks["Ticker"] = stocks["Symbol"].str.replace(".", "-", regex=False)  # Yahoo writes BRK.B as BRK-B
     stocks["Added"] = pd.to_datetime(stocks["Date added"], errors="coerce")  # Blank for the original members
     return stocks
+
+
+# Every index addition and removal with its effective date, back to 1976
+def fetch_changes():
+    response = requests.get(CHANGES_URL, headers={"User-Agent": "Mozilla/5.0"})
+    response.raise_for_status()
+    table = pd.read_html(StringIO(response.text))[0]
+    table.columns = ["date", "added", "added_name", "removed", "removed_name", "reason", "refs"]
+
+    changes = table[["date", "added", "added_name", "removed", "removed_name"]].copy()
+    changes["date"] = pd.to_datetime(changes["date"], errors="coerce")
+    for column in ("added", "removed"):
+        changes[column] = changes[column].str.replace(".", "-", regex=False)  # Match Yahoo's spelling
+    return changes.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
 
 # Daily OHLCV for every ticker, columns are a (ticker, field) MultiIndex
@@ -169,7 +184,13 @@ def fetch_splits(tickers):
 # Fetch or load every raw input, and write each to data/raw
 def load_raw(refresh=False):
     stocks = cached(RAW_DIR / "constituents.parquet", fetch_constituents, refresh)
-    tickers = stocks["Ticker"].tolist()
+    changes = cached(RAW_DIR / "changes.parquet", fetch_changes, refresh)
+
+    # Companies removed during the window were index members for part of it, so we
+    # need their prices too. Without them the dataframe only ever holds survivors.
+    in_window = changes[changes["date"] >= pd.Timestamp(START)]
+    dropped = set(in_window["removed"].dropna()) | set(in_window["added"].dropna())
+    tickers = sorted(set(stocks["Ticker"]) | dropped)
 
     prices = cached(RAW_DIR / "prices.parquet", lambda: fetch_prices(tickers), refresh)
     window_start = prices.index.min()
@@ -178,4 +199,4 @@ def load_raw(refresh=False):
     benchmark = cached(RAW_DIR / "benchmark.parquet", fetch_benchmark, refresh)
     splits = cached(RAW_DIR / "splits.parquet", lambda: fetch_splits(tickers), refresh)
 
-    return stocks, prices, shares, benchmark, splits
+    return stocks, changes, prices, shares, benchmark, splits

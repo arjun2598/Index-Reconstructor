@@ -15,15 +15,15 @@ Reproducing the exact returns may be difficult to achieve, but any differences i
 
 ## Actual Observations
 
-I was able to achieve a 0.99974 correlation of daily returns between my reconstruction of the index and the actual data after several iterations. A few key contributing factors to initial divergence were stock splits, addition timings of stocks to the index, and renaming of tickers. While other defects still exist, such as failing to incorporate the companies that previously existed in the index but have since been removed, I believe I have achieved the key objective of this study. Those interested in reading the findings in full can find them in [divergence.md](research/divergence.md). Some background research is also included in [s&p.md](research/s&p.md).
+I was able to achieve a 0.99978 correlation of daily returns between my reconstruction of the index and the actual data after several iterations. A few key contributing factors to initial divergence were stock splits, addition timings of stocks to the index, and renaming of tickers. While other defects still exist, such as the roughly 3% of index members that Yahoo no longer prices once they are acquired or delisted, I believe I have achieved the key objective of this study. Those interested in reading the findings in full can find them in [divergence.md](research/divergence.md). Some background research is also included in [s&p.md](research/s&p.md).
 
 ## Result Visualisations
 
-Each iteration removed a defect and tightened the tracking error. The basic reconstruction was at 9.71bp of daily tracking error against the published index while the latest one sits at 2.51bp.
+Each iteration removed a defect and tightened the tracking error. The basic reconstruction was at 9.71bp of daily tracking error against the published index while the latest one sits at 2.34bp.
 
 ![Daily tracking error after each fix](figures/1_fix_ladder.png)
 
-Plotted against the published index, the two series are hard to tell apart. The panel underneath shows the cumulative difference, which is where the remaining bias is visible: it opens through 2023 and settles near +2 percentage points, most likely the companies removed from the index that are missing from my data.
+Plotted against the published index, the two series are hard to tell apart. The panel underneath shows the cumulative difference, which stays within roughly half a percentage point either way and ends at +0.4pp. The drift that used to sit here was the companies removed from the index, which point-in-time membership now handles.
 
 ![Reconstruction against the published index](figures/2_tracking.png)
 
