@@ -4,6 +4,8 @@ Every output is indexed by trading date with one column per ticker, so the dataf
 multiply together elementwise.
 """
 
+import pandas as pd
+
 from config import CLEAN_DIR
 
 
@@ -21,17 +23,37 @@ def clean_shares(raw_shares, index):
     )
 
 
+# Prices come back split-adjusted all the way down their history, while share counts
+# are as filed. Before a split the two disagree by its ratio, so we put shares on the
+# same post-split basis by scaling each day up by every split that came after it.
+def split_factors(splits, index, columns):
+    factors = pd.DataFrame(1.0, index=index, columns=columns)
+
+    for row in splits.itertuples():
+        if row.ticker not in factors.columns:
+            continue
+        earlier = factors.index < row.date      # Days on or after the split are already on the new basis
+        factors.loc[earlier, row.ticker] *= row.ratio
+
+    return factors
+
+
+# Restate share counts onto the same basis as the prices
+def adjust_shares(shares, splits):
+    return shares * split_factors(splits, shares.index, shares.columns)
+
+
 # Reduce the benchmark to a single Close series on our trading calendar
 def clean_benchmark(raw_benchmark, index):
     return raw_benchmark["Close"].reindex(index)
 
 
 # Build every clean dataframe and write it to data/clean
-def build_clean(prices, raw_shares, raw_benchmark):
+def build_clean(prices, raw_shares, raw_benchmark, splits):
     index = prices.index                    # The trading calendar everything else aligns to
 
     closes = clean_closes(prices)
-    shares = clean_shares(raw_shares, index)
+    shares = adjust_shares(clean_shares(raw_shares, index), splits)
     benchmark = clean_benchmark(raw_benchmark, index)
 
     CLEAN_DIR.mkdir(parents=True, exist_ok=True)

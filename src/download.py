@@ -54,7 +54,7 @@ def fetch_prices(tickers, start=START):
         tickers,
         start=start,
         end=None,               # Until present
-        auto_adjust=False,      # S&P is a price-return index, so we want raw closes
+        auto_adjust=False,      # Excludes dividends only. Close is still split-adjusted
         group_by="ticker",
         threads=True,
     )
@@ -145,6 +145,26 @@ def fetch_shares(tickers, window_start):
     return pd.DataFrame({t: s for t, s in series.items() if s is not None})
 
 
+# Every split in a ticker's history, as one long table of ticker/date/ratio rows
+def fetch_splits(tickers):
+    def one(ticker):
+        try:
+            splits = yf.Ticker(ticker).splits
+        except Exception:
+            return []
+        
+        if splits is None or len(splits) == 0:
+            return []
+
+        splits.index = to_naive_days(splits.index)
+        return [{"ticker": ticker, "date": d, "ratio": r} for d, r in splits.items()]
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        rows = [row for batch in ex.map(one, tickers) for row in batch]
+
+    return pd.DataFrame(rows, columns=["ticker", "date", "ratio"])
+
+
 # Fetch or load every raw input, and write each to data/raw
 def load_raw(refresh=False):
     stocks = cached(RAW_DIR / "constituents.parquet", fetch_constituents, refresh)
@@ -155,5 +175,6 @@ def load_raw(refresh=False):
 
     shares = cached(RAW_DIR / "shares.parquet", lambda: fetch_shares(tickers, window_start), refresh)
     benchmark = cached(RAW_DIR / "benchmark.parquet", fetch_benchmark, refresh)
+    splits = cached(RAW_DIR / "splits.parquet", lambda: fetch_splits(tickers), refresh)
 
-    return stocks, prices, shares, benchmark
+    return stocks, prices, shares, benchmark, splits

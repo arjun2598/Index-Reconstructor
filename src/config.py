@@ -35,6 +35,7 @@ RENAMES = {
 
 MIN_UNIVERSE = 500          # The index holds 500+ names, fewer means we silently dropped some
 TOP_N = 50                  # Largest names, where a silent drop does the most damage
+SHARE_JUMP_RATIO = 1.5      # A real issuance rarely moves shares this far in a day, so it flags split-boundary noise
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"      # Exact data from yfinance, never edited
