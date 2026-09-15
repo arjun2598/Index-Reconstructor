@@ -33,7 +33,7 @@ RENAMES = {
     "SW": "WRK",        # Smurfit Westrock, was WestRock
 }
 
-MIN_UNIVERSE = 500          # The index holds 500+ names, fewer means we silently dropped some
+INDEX_SIZE = 500            # Names the real index holds, so the shortfall is companies we cannot recover
 TOP_N = 50                  # Largest names, where a silent drop does the most damage
 SHARE_JUMP_RATIO = 1.5      # A real issuance rarely moves shares this far in a day, so it flags split-boundary noise
 

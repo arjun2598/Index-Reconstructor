@@ -6,7 +6,6 @@
 from diagnostics import (
     corporate_action_days,
     coverage,
-    late_entrants,
     tracking_by_year,
     worst_days,
 )
@@ -38,7 +37,7 @@ def report_tracking(level, benchmark):
     print(f"Correlation of daily returns: {s['correlation']:.5f}")
 
 
-def report_diagnostics(closes, shares, caps, w, returns, benchmark):
+def report_diagnostics(closes, shares, membership, caps, w, returns, benchmark):
     theirs = benchmark.pct_change()
 
     print("\nTracking by year:")
@@ -47,13 +46,10 @@ def report_diagnostics(closes, shares, caps, w, returns, benchmark):
     print("\nWorst days:")
     print(worst_days(closes, w, returns, theirs).to_string(index=False))
 
-    holes = coverage(closes, shares)
-    print(f"\nCoverage holes in {len(holes)} tickers "
-          f"({int(holes.priced_but_dropped.sum())} ticker-days priced but dropped for want of shares):")
+    holes = coverage(closes, shares, membership)
+    print(f"\nCoverage holes while a member, {len(holes)} tickers "
+          f"({int(holes.priced_but_dropped.sum())} member-days priced but dropped for want of shares):")
     print(holes.head(8))
-
-    print("\nTickers starting after the window opens:")
-    print(late_entrants(closes).head(8).to_string())
 
     actions = corporate_action_days(caps, returns)
     print(f"\n{len(actions)} days where share counts moved (weighted vs aggregate return, bp):")
@@ -66,4 +62,4 @@ if __name__ == "__main__":
 
     report_index(caps, w, level)
     report_tracking(level, benchmark)
-    report_diagnostics(closes, shares, caps, w, returns, benchmark)
+    report_diagnostics(closes, shares, membership, caps, w, returns, benchmark)

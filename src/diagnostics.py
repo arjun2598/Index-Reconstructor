@@ -12,20 +12,13 @@ def contributions(closes, w):
     return w.shift(1) * returns             # Same product index_returns sums, kept per stock
 
 
-# Where the dataframe has holes, and which holes silently drop a stock from the index
-def coverage(closes, shares):
-    dropped = closes.notna() & shares.isna()    # Priced but no share count, so market cap is NaN
+# Where the dataframe has holes, counted only while a company is an index member
+def coverage(closes, shares, membership):
     return pd.DataFrame({
-        "nan_closes": closes.isna().sum(),
-        "nan_shares": shares.isna().sum(),
-        "priced_but_dropped": dropped.sum(),
-    }).query("nan_closes > 0 or nan_shares > 0").sort_values("priced_but_dropped", ascending=False)
-
-
-# First day each ticker has a price, for names starting after the window opens
-def late_entrants(closes):
-    first = closes.apply(lambda c: c.first_valid_index())
-    return first[first > closes.index[0]].sort_values()
+        "no_price": (membership & closes.isna()).sum(),
+        "no_shares": (membership & shares.isna()).sum(),
+        "priced_but_dropped": (membership & closes.notna() & shares.isna()).sum(),
+    }).query("no_price > 0 or no_shares > 0").sort_values("priced_but_dropped", ascending=False)
 
 
 # Tracking quality split by year, since errors grow the further back we go

@@ -21,7 +21,7 @@ def build(refresh=False):
     closes, shares, benchmark, membership = build_clean(stocks, prices, raw_shares, raw_benchmark, splits)
     print(f"  wrote closes {closes.shape}, shares {shares.shape}, benchmark {benchmark.shape}")
 
-    report(*validate(closes, shares))
+    report(*validate(closes, shares, membership))
 
     return stocks, closes, shares, benchmark, membership
 
