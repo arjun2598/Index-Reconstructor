@@ -6,21 +6,19 @@
   - `SPY` is a fund, carries its own tracking error and expense ratio
 
 - Current window: 1179 trading days, 2022-01-03 to 2026-09-15
-  - ours +64.01%, published +58.13%, gap +588.4bp
-  - daily TE stdev 4.06bp, worst day 16.0bp, correlation 0.99950
+  - ours +60.34%, published +58.06%, gap +228.3bp
+  - daily TE stdev 2.51bp, worst day 14.1bp, correlation 0.99974
   - Gap = our cumulative return minus published. TE stdev = noise floor, judge future changes against it
   - Prefer TE stdev over cumulative gap: yearly errors of opposite sign can cancel and flatter the total
-  - Gap flipped from -256bp to +588bp with the split fix. The old negative gap was largely splitters carried at a fraction of their weight during the biggest rally in the window
 
-- Tracking by year, after the split fix
-  - 2022: ours -20.68%, published -19.95%, TE 5.53bp, mean -0.31bp, gap -0.73pp
-  - 2023: ours +26.75%, published +24.23%, TE 3.07bp, mean +0.81bp, gap +2.52pp
-  - 2024: ours +25.57%, published +23.31%, TE 3.47bp, mean +0.74bp, gap +2.27pp
-  - 2025: ours +17.13%, published +16.39%, TE 4.22bp, mean +0.28bp, gap +0.74pp
-  - 2026: ours +10.92%, published +10.80%, TE 3.17bp, mean +0.07bp, gap +0.12pp
-  - The year gradient is gone. TE was 13.42bp in 2022 and 3.38bp in 2026 before any fixes, now it is flat at 3-5bp throughout
-  - So what looked like a survivorship signature was mostly splits. Survivorship is still present but much smaller than assumed
-  - `mean_bp` is now consistently positive in 2023-2025, so we systematically overweight winners. That is the float-adjustment signature
+- Tracking by year, after split and membership fixes
+  - 2022: ours -20.10%, published -19.95%, TE 2.78bp, mean -0.06bp, gap -0.14pp
+  - 2023: ours +25.47%, published +24.23%, TE 2.33bp, mean +0.39bp, gap +1.23pp
+  - 2024: ours +24.35%, published +23.31%, TE 1.98bp, mean +0.34bp, gap +1.04pp
+  - 2025: ours +16.53%, published +16.39%, TE 2.34bp, mean +0.06bp, gap +0.14pp
+  - 2026: ours +10.37%, published +10.75%, TE 3.17bp, mean -0.19bp, gap -0.37pp
+  - Yearly gaps are now small and mixed in sign, where they were persistently positive before the membership fix
+  - 2026 is the only year that did not improve, and its gap flipped negative. Recently removed companies bite hardest at the end of the window, and that half is not fixable from the current Wikipedia page
 
 - Silent NaN exclusion, the most important finding
   - Nothing in the code handles NaN, the behaviour falls out of pandas defaults
@@ -30,6 +28,20 @@
   - `validation.py` now reports this on every run, so it is no longer silent, but the underlying holes remain
   - `w.sum(axis=1) == 1` is a vacuous check, it can never fail because the denominator is built from whatever survived
   - Renormalising a dropped name assumes it returned the index average that day, which is wrong but doesn't have severe consequences, so errors show as noise rather than collapse
+
+- Fixed: addition timing, the drift's main cause
+  - 77 of today's 503 members joined after 2022-01-03, roughly 15 per year, and we were holding all of them from day one
+  - Companies are added because they grew enough to qualify, so holding them early captures the run-up that earned them a place, which the real index never participated in
+  - `Date added` was already being scraped and then discarded. `fetch_constituents` now keeps it, `build_membership` in cleaning.py turns it into a boolean frame, and `market_caps` applies it with `.where()` so a non-member goes NaN and drops out of the weights
+  - A blank date means the company predates our window, so it stays a member throughout
+  - Results: gap +588.4bp to +228.3bp, TE stdev 4.06bp to 2.51bp, mean +0.33bp to +0.13bp, correlation 0.99950 to 0.99974
+  - Every year improved. Per-year TE: 2022 5.53 to 2.78, 2023 3.07 to 2.33, 2024 3.47 to 1.98, 2025 4.22 to 2.34
+  - `MIN_UNIVERSE` warning is now partly expected rather than a defect: early in the window we should hold fewer than 500 names. The check still measures data availability, not membership, so the two now overlap
+
+- Remaining: companies removed from the index
+  - Roughly 77 companies left the index over the window and are absent from our panel entirely
+  - They typically underperformed before being dropped, so excluding them exaggerates our return. This is the other half of survivorship and the likely source of the residual +228bp
+  - Would need a historical membership source
 
 - Fixed: split adjustment, the largest error found
   - `auto_adjust=False` does NOT give raw closes. It excludes dividends only, Yahoo's Close is split-adjusted either way
@@ -78,14 +90,12 @@
   - Still short of 500 on 788 of 1179 days, and they are not the right names since names were added / removed
 
 - Worst days are driven by mega-caps, not obscure names
-  - 2025-03-06 -16.0bp: NVDA -30.9bp, AMZN -15.3bp, META -13.6bp
-  - 2025-02-20 -15.6bp: WMT -9.7bp, AMZN -7.1bp, JPM -6.2bp
-  - 2025-03-10 -14.8bp: AAPL -33.3bp, NVDA -26.6bp, TSLA -24.9bp
-  - 2022-05-09 -14.5bp: AAPL -22.8bp, TSLA -21.9bp, MSFT -20.5bp
-  - 2026-07-23 -14.0bp: GOOGL -43.7bp, TSLA -29.9bp, AMZN -17.7bp
-  - All now in the 14-16bp band rather than 43-54bp, with no single outlier and no ticker appearing in all five
-  - MSFT dominated every worst day before the split fix, which pointed at its weight. That turned out to be the split mismatch distorting everything around it, not MSFT itself
-  - The remaining pattern is residual weighting bias on the largest names, consistent with float rather than a data defect
+  - 2026-07-23 -14.1bp: GOOGL -43.7bp, TSLA -30.0bp, AMZN -17.7bp
+  - 2025-09-10 +12.4bp: ORCL +41.8bp, NVDA +27.4bp, AVGO +26.5bp
+  - 2026-07-31 +8.4bp: AMZN +57.6bp, AAPL -53.4bp, GOOGL +40.8bp
+  - 2026-07-30 -8.2bp: MSFT +67.7bp, MU +23.1bp, NVDA +18.3bp
+  - Down from a 43-54bp band before the split fix, to 14-16bp after it, to 7-14bp now
+  - Four of the five worst days are in 2026, matching the year-by-year table, so what is left concentrates at the end of the window
 
 - Fixed: dual-class double counting
   - Measured on the earlier 30-day window: gap -72.0bp to -20.6bp, TE 9.71bp to 5.68bp, correlation 0.98847 to 0.99647
@@ -97,32 +107,28 @@
   - `SECOND_CLASS` is hardcoded to today's three pairs, needs to become detection as the horizon widens
 
 - Remaining 1: float adjustment
-  - We use full shares outstanding, so closely-held companies are overweighted
-  - WMT is 54.7% float, so the real index gives it roughly half our weight. Most closely held: LVS 0.449, TMUS 0.453, PSKY 0.492, HRL 0.528, DVA 0.532, WMT 0.547
-  - Median float ratio across the index is 0.994, so most names are almost fully floated and the adjustment only bites on a minority
-  - Yahoo `floatShares` is usable for 485 of 503, broken for 18:
-    - 14 impossible (ratio > 1): GOOGL, GOOG, FOX, NWS, KR, GIS, STT, BF-B and others, mostly dual-class where float is reported combined
-    - BRK-B: 1.408B shares but 0.001B float, would delete Berkshire
-    - 3 missing entirely
-  - Measured on the 30-day window with a guarded fallback: TE 5.68bp to 4.91bp, correlation 0.99647 to 0.99705, cumulative gap slightly worse at -21.8bp
-  - Deferred: `floatShares` is a current scalar with no history, so applying it backwards repeats the project-today-backwards problem, and the 18 broken names include a top-3 weight
-  - S&P does not use raw float anyway, it applies a banded and rounded Investable Weight Factor updated quarterly, so even perfect float would not reproduce official weights
+  - S&P weights by shares available to the public, excluding insider and strategic holdings. We use full shares outstanding, so closely-held companies are overweighted
+  - Most closely held: BRK-B 0.001 (broken), LVS 0.449, TMUS 0.453, PSKY 0.492, HRL 0.528, DVA 0.532, WMT 0.547
+  - Median float ratio is 0.994, so most names are almost fully floated and this only bites on a minority
+  - Yahoo `floatShares` is usable for 485 of 503: 14 report a float above shares outstanding (dual-class names given a combined figure), BRK-B reports 0.001 which would delete Berkshire, 3 are missing. Those fall back to full shares
+  - Measured on the current panel: TE stdev 2.51bp to 2.28bp, correlation 0.99974 to 0.99978, gap slightly worse at +167bp
+  - It does NOT touch the drift. `mean_bp` stays at +0.13 to +0.14, so float is a noise reduction, not a bias correction. An earlier note here predicted the opposite and was wrong
+  - Deferred: `floatShares` is a current scalar with no history, so applying today's ratio across 1179 days assumes insider stakes never changed. The ratio is dimensionless, so at least it is unaffected by the split adjustment
+  - S&P does not use raw float anyway, it applies a banded and rounded Investable Weight Factor updated quarterly
 
 - Remaining 2: no divisor
   - S&P adjusts its divisor on every buyback, issuance and membership change so the level does not jump on non-price events
   - We have no divisor, so those events leak into our series
   - Self-check needing no external data: `(weights.shift(1) * closes.pct_change()).sum(axis=1)` vs `caps.sum(axis=1).pct_change()`
   - They agree to a hundredth of a bp except on days a share count changed
-  - 428 such days over the window, largest 2024-06-25 -870.7bp and 2024-06-26 +830.4bp, then 2025-04-11 +296.7bp
+  - 446 such days over the window, largest 2024-06-25 -890.4bp and 2024-06-26 +847.5bp, then 2025-04-11 +295.7bp
   - Before the split fix this check was mostly finding splits, not issuances. The largest entries are now paired opposite-sign days, the split-boundary filing noise above
   - The weighted figure is the correct one, issuance does not make a holder richer
 
-- Remaining 3: survivorship and membership timing
-  - Membership is today's Wikipedia table applied backwards, so removals are missing and additions are held too early
-  - Correcting FERG and RDDT entry dates changed daily TE by 0.01bp on the 30-day window
-  - Size is now unknown. The year-by-year TE gradient was the evidence for this being material, and the split fix flattened that gradient, so most of what was attributed here belonged to splits
-  - Still real, since we hold 491-503 names and they are not the right ones, but it should be re-measured rather than assumed to be the structural limit
-  - Needs the historical changes table, not current membership
+- Remaining 3: membership timing, half fixed
+  - Additions are fixed, see the addition timing section above
+  - Removals are not: roughly 77 companies left the index over the window and are missing entirely
+  - The current Wikipedia page no longer carries a changes table, so a different source is needed
 
 - Remaining 4: share count timing
   - `get_shares_full` dates values by Yahoo's filing record date, not S&P's effective date
@@ -131,15 +137,20 @@
 - Ruled out
   - MRNA +177% on 2026-08-19: checked for a split, none found, share count unchanged either side. Genuine news move, present in the published index too
   - Blending dual-class prices instead of dropping the second class: 0.1bp
+  - Our market caps are not the problem. Cross-checked against Yahoo's own `marketCap` for the nine largest names, every one matches within 1%
+
+- Methods that did not work
+  - Leave-one-out (rebuild the index without a stock, see if the gap shrinks) is invalid here. The published index still holds that stock, so removing it creates a mismatch by construction. It conflates a stock's genuine return contribution with mis-weighting
+  - It produced two false leads: MSFT as the cause of 2024, and NVDA as the cause of the drift. Both were artifacts of the method
+  - A flat year-by-year TE gradient was read as evidence against survivorship. Wrong test: survivorship shows up as drift in `mean_bp` and the cumulative gap, not as year-to-year noise
 
 - Not diverging
-  - Correlation 0.99950 over 1179 days means the mechanics are sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
+  - Correlation 0.99974 over 1179 days means the mechanics are sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
   - Residual is dominated by data quality (point-in-time membership, float), not construction logic
 
 - Fix priority
-  - Done: make the pipeline loud (`validation.py`), dual-class dedupe, ticker renames, split adjustment
-  - Next: float adjustment, now the clearest remaining signal. `mean_bp` is positive across 2023-2025, meaning we overweight winners, which is what using full shares instead of float does
-  - Then split-boundary filing noise, 76 stock-days, cheap to fix and now large relative to a 4bp TE
-  - Then historical membership. Worth re-measuring first: the year gradient that motivated it has flattened, so survivorship may be smaller than assumed
-  - Then spinoff listing lag, 96 ticker-days
-  - Housekeeping: `SECOND_CLASS` and `RENAMES` are hardcoded lists that will silently go stale, and `--refresh` only reaches pipeline.py so changing START and running analysis.py returns the old window from cache
+  - Done: make the pipeline loud (`validation.py`), dual-class dedupe, ticker renames, split adjustment, addition timing
+  - Next: removed companies, the other half of survivorship and the likely source of the residual +228bp. Needs a historical membership source since Wikipedia's changes table is gone
+  - Then float adjustment, worth 2.51bp to 2.28bp but it is a current ratio projected backwards and does not touch the drift
+  - Then split-boundary filing noise (76 stock-days) and spinoff listing lag (96 ticker-days)
+  - Housekeeping: `SECOND_CLASS` and `RENAMES` are hardcoded lists that will silently go stale, `MIN_UNIVERSE` now overlaps with membership so its warning is partly expected, and `--refresh` only reaches pipeline.py so changing START and running analysis.py returns the old window from cache

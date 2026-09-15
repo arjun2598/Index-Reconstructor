@@ -18,17 +18,17 @@ def build(refresh=False):
 
     # Clean layer is cheap to rebuild, so we always redo it rather than caching a stale version
     print("clean:")
-    closes, shares, benchmark = build_clean(prices, raw_shares, raw_benchmark, splits)
+    closes, shares, benchmark, membership = build_clean(stocks, prices, raw_shares, raw_benchmark, splits)
     print(f"  wrote closes {closes.shape}, shares {shares.shape}, benchmark {benchmark.shape}")
 
     report(*validate(closes, shares))
 
-    return stocks, closes, shares, benchmark
+    return stocks, closes, shares, benchmark, membership
 
 
 if __name__ == "__main__":
     refresh = "--refresh" in sys.argv       # Force a re-fetch, ignoring whatever is cached
-    stocks, closes, shares, benchmark = build(refresh)
+    stocks, closes, shares, benchmark, membership = build(refresh)
 
     print(f"\n{len(stocks)} constituents | {closes.index.min().date()} to {closes.index.max().date()}")
     print(closes.iloc[:3, :4])

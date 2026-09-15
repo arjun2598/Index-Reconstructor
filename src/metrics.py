@@ -5,8 +5,11 @@ import pandas as pd
 from config import SECOND_CLASS
 
 # Market value of every company on every day
-def market_caps(closes, shares):
+def market_caps(closes, shares, membership=None):
     caps = closes * shares
+    if membership is not None:
+        caps = caps.where(membership)       # NaN before a company joined, so it drops out of the weights
+        
     return caps.drop(columns=SECOND_CLASS, errors="ignore")  # One share class per company
 
 
@@ -33,8 +36,8 @@ def rebase(series, base=100.0):
 
 
 # Build every dataframe the reconstruction needs, in order
-def reconstruct(closes, shares):
-    caps = market_caps(closes, shares)
+def reconstruct(closes, shares, membership=None):
+    caps = market_caps(closes, shares, membership)
     w = weights(caps)
     returns = index_returns(closes, w)
     return caps, w, returns, index_level(returns)

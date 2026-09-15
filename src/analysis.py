@@ -61,8 +61,8 @@ def report_diagnostics(closes, shares, caps, w, returns, benchmark):
 
 
 if __name__ == "__main__":
-    _, closes, shares, benchmark = build()
-    caps, w, returns, level = reconstruct(closes, shares)
+    _, closes, shares, benchmark, membership = build()
+    caps, w, returns, level = reconstruct(closes, shares, membership)
 
     report_index(caps, w, level)
     report_tracking(level, benchmark)

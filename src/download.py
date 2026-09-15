@@ -43,8 +43,9 @@ def fetch_constituents():
     # pandas >= 3.0 no longer accepts a raw HTML string, only a file-like object
     table = pd.read_html(StringIO(response.text))[0]
 
-    stocks = table[["Symbol", "Security", "GICS Sector", "GICS Sub-Industry"]].copy()
+    stocks = table[["Symbol", "Security", "GICS Sector", "GICS Sub-Industry", "Date added"]].copy()
     stocks["Ticker"] = stocks["Symbol"].str.replace(".", "-", regex=False)  # Yahoo writes BRK.B as BRK-B
+    stocks["Added"] = pd.to_datetime(stocks["Date added"], errors="coerce")  # Blank for the original members
     return stocks
 
 
