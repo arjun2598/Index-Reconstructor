@@ -46,8 +46,8 @@
   - `implied_shares` cannot help: `get_valuation_measures` reaches back only 5 quarters from today, so it works at the window's end, not its start
 
 - 11 tickers start after the window opens
-  - CEG 2022-01-19, GEHC 2022-12-15, KVUE 2023-05-04, VLTO 2023-10-04, RDDT 2024-03-21, SOLV 2024-03-26, GEV 2024-03-27, SNDK 2025-02-13, Q 2025-10-27, FDXF 2026-05-27, HONA
-  - Mostly spinoffs (GE HealthCare, GE Vernova, Kenvue, Veralto, Solventum) and IPOs
+  - CEG 2022-01-19, GEHC 2022-12-15, KVUE 2023-05-04, VLTO 2023-10-04, RDDT 2024-03-21, SOLV 2024-03-26, GEV 2024-03-27, SNDK 2025-02-13, Q 2025-10-27, FDXF 2026-05-27, HONA 2026-06-15
+  - Mostly spinoffs (GE HealthCare, GE Vernova, Kenvue, Veralto, Solventum, FedEx Freight, Honeywell Aerospace, Qnity) and IPOs (Reddit)
   - No fallback can help, these companies did not exist
   - `pct_change` gives NaN on a stock's first day, so new entrants correctly contribute nothing on day one
 

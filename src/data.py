@@ -12,6 +12,9 @@ START = "2022-01-01"
 BENCHMARK = "^GSPC"          # The published price-return index, so no dividends, matching auto_adjust=False
 SHARES_LOOKBACK_DAYS = 400 # Filings are usually quarterly, so we look back far enough to catch one before START
 
+MIN_UNIVERSE = 500          # The index holds 500+ names, fewer means we silently dropped some
+TOP_N = 50                  # Largest names, where a silent drop does the most damage
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"      # Exact data from yfinance
 CLEAN_DIR = DATA_DIR / "clean"  # Clean dataframes from raw data
@@ -155,6 +158,50 @@ def cached(path, fetch, refresh=False):
     return df
 
 
+
+# ----- validation -----
+
+# A cell is usable only if both price and share count are present, since either
+# missing makes market cap NaN and silently drops the stock from that day's index
+def validate(closes, shares, min_universe=MIN_UNIVERSE, top_n=TOP_N):
+    live = closes.notna() & shares.notna()
+    universe = live.sum(axis=1)
+    warnings = []
+
+    short = universe[universe < min_universe]
+    if len(short):
+        warnings.append(
+            f"universe below {min_universe} on {len(short)} of {len(universe)} days "
+            f"(min {universe.min()} on {universe.idxmin().date()})"
+        )
+
+    # Rank by market cap on the last row, where every name is most likely to be present
+    biggest = (closes.iloc[-1] * shares.iloc[-1]).nlargest(top_n).index
+    absent = (~live[biggest]).sum()
+    absent = absent[absent > 0].sort_values(ascending=False)
+    
+    if len(absent):
+        named = ", ".join(f"{t} {n}d" for t, n in absent.head(5).items())
+        warnings.append(f"{len(absent)} of the top {top_n} names are missing on some days: {named}")
+
+    priced_only = (closes.notna() & shares.isna()).sum()
+    priced_only = priced_only[priced_only > 0].sort_values(ascending=False)
+    if len(priced_only):
+        named = ", ".join(f"{t} {n}d" for t, n in priced_only.head(5).items())
+        warnings.append(
+            f"{int(priced_only.sum())} ticker-days have a price but no share count "
+            f"across {len(priced_only)} tickers: {named}"
+        )
+
+    late = closes.apply(lambda c: c.first_valid_index())
+    late = late[late > closes.index[0]]
+    if len(late):
+        named = ", ".join(f"{t} {d.date()}" for t, d in late.sort_values().head(5).items())
+        warnings.append(f"{len(late)} tickers have no price at the window start: {named}")
+
+    return universe, warnings
+
+
 def build(refresh=False):
     print("raw:")
     stocks = cached(RAW_DIR / "constituents.parquet", fetch_constituents, refresh)
@@ -180,6 +227,13 @@ def build(refresh=False):
     shares.to_parquet(CLEAN_DIR / "shares.parquet")
     benchmark.to_frame().to_parquet(CLEAN_DIR / "benchmark.parquet")  # to_frame since parquet needs a table
     print(f"  wrote closes.parquet {closes.shape} and shares.parquet {shares.shape}")
+
+    universe, warnings = validate(closes, shares)
+    print(f"checks: usable names per day min {universe.min()}, median {int(universe.median())}, max {universe.max()}")
+    for w in warnings:
+        print(f"  WARN  {w}")
+    if not warnings:
+        print("  all clear")
 
     return stocks, closes, shares, benchmark
 
