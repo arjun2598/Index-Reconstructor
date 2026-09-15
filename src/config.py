@@ -13,6 +13,26 @@ SHARES_LOOKBACK_DAYS = 400  # Filings are usually quarterly, so look back far en
 # total shares priced at that class already give the full market cap.
 SECOND_CLASS = ["GOOG", "FOX", "NWS"]
 
+# Yahoo keeps price history under a renamed ticker but files share counts only from the
+# rename date, so we fetch the old symbol too and use it for the earlier period.
+RENAMES = {
+    "META": "FB",       # Meta, was Facebook
+    "ELV": "ANTM",      # Elevance Health, was Anthem
+    "BALL": "BLL",      # Ball Corporation
+    "WBD": "DISCA",     # Warner Bros. Discovery, was Discovery
+    "WTW": "WLTW",      # Willis Towers Watson
+    "RVTY": "PKI",      # Revvity, was PerkinElmer
+    "EG": "RE",         # Everest Group, was Everest Re
+    "CPAY": "FLT",      # Corpay, was FLEETCOR
+    "XYZ": "SQ",        # Block, was Square
+    "PSKY": "PARA",     # Paramount Skydance, was Paramount Global
+    "EXE": "CHK",       # Expand Energy, was Chesapeake
+    "MRSH": "MMC",      # Marsh McLennan
+    "VMRK": "AVB",      # Vivmark Residential, was AvalonBay
+    "TKO": "WWE",       # TKO Group, was WWE
+    "SW": "WRK",        # Smurfit Westrock, was WestRock
+}
+
 MIN_UNIVERSE = 500          # The index holds 500+ names, fewer means we silently dropped some
 TOP_N = 50                  # Largest names, where a silent drop does the most damage
 

@@ -12,6 +12,7 @@ from config import (
     INDEX_URL,
     MAX_WORKERS,
     RAW_DIR,
+    RENAMES,
     SHARES_LOOKBACK_DAYS,
     START,
 )
@@ -114,8 +115,18 @@ def fetch_shares(tickers, window_start):
     # that every ticker has at least one observation before the price history begins
     start = (window_start - pd.Timedelta(days=SHARES_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
+    # Renamed tickers file only from the rename date, so fetch the old symbol as well
+    old_symbols = [old for new, old in RENAMES.items() if new in tickers]
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        series = dict(ex.map(lambda t: (t, _filed_shares(t, start)), tickers))
+        series = dict(ex.map(lambda t: (t, _filed_shares(t, start)), list(tickers) + old_symbols))
+
+    for new, old in RENAMES.items():
+        current, previous = series.get(new), series.pop(old, None)
+        if previous is None:
+            continue
+        # Filings under the current symbol win, the old one only covers earlier dates
+        series[new] = previous if current is None else current.combine_first(previous)
 
     # A ticker is short if it has no filings at all, or none before our window opens
     gaps = [t for t, s in series.items() if s is None or s.index.min() > window_start]

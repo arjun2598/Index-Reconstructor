@@ -5,45 +5,45 @@
   - `^SP500TR` includes dividends, would drift above us by the dividend yield
   - `SPY` is a fund, carries its own tracking error and expense ratio
 
-- Current window: 1178 trading days, 2022-01-03 to 2026-09-14
-  - ours +57.98%, published +58.86%, gap -88.8bp
-  - daily TE stdev 8.60bp, worst day 79.5bp, correlation 0.99689
+- Current window: 1179 trading days, 2022-01-03 to 2026-09-15
+  - ours +55.94%, published +58.51%, gap -256.3bp
+  - daily TE stdev 7.75bp, worst day 54.2bp, correlation 0.99746
   - Gap = our cumulative return minus published. TE stdev = noise floor, judge future changes against it
+  - Prefer TE stdev over cumulative gap: yearly errors of opposite sign can cancel and inaccurately report the total
 
-- Error scales with how far back we go, the survivorship signature
-  - 2022: ours -18.30%, published -19.95%, TE 13.42bp, mean +0.74bp, gap +1.66pp
-  - 2023: ours +23.54%, published +24.23%, TE 6.28bp, mean -0.23bp, gap -0.69pp
-  - 2024: ours +20.45%, published +23.31%, TE 10.15bp, mean -0.94bp, gap -2.86pp
-  - 2025: ours +16.90%, published +16.39%, TE 4.06bp, mean +0.20bp, gap +0.51pp
-  - 2026: ours +11.16%, published +11.31%, TE 3.38bp, mean -0.08bp, gap -0.16pp
-  - TE is 4x worse in 2022 than 2026
-  - Drift does not accumulate: overall mean daily diff is -0.06bp and yearly gaps alternate sign, so this is noise not a consistent tilt
-  - 2024 is the worst year at -2.86pp, unexplained, worth isolating
+- Error scales with how far back we go, likely survivorship
+  - 2022: ours -19.09%, published -19.95%, TE 10.69bp, mean +0.37bp, gap +0.86pp
+  - 2023: ours +23.48%, published +24.23%, TE 6.34bp, mean -0.25bp, gap -0.75pp
+  - 2024: ours +20.40%, published +23.31%, TE 10.20bp, mean -0.95bp, gap -2.91pp
+  - 2025: ours +16.90%, published +16.39%, TE 3.95bp, mean +0.20bp, gap +0.51pp
+  - 2026: ours +10.90%, published +11.06%, TE 3.37bp, mean -0.08bp, gap -0.16pp
+  - 2024 is now the dominant problem at -2.91pp, three of the five worst days fall in it
+  - 2022 and 2024 are both high TE but for different reasons, so the gradient is not purely survivorship
 
 - Silent NaN exclusion, the most important finding
   - Nothing in the code handles NaN, the behaviour falls out of pandas defaults
   - `closes * shares` is NaN if either side is NaN, `caps.sum(axis=1)` skips NaN, so the denominator only ever includes available names
   - Net effect: a stock with any missing data is dropped from the universe that day and the rest are silently renormalised
-  - Names contributing to weights: min 474, median 490, max 500. We reconstruct a 500-name index with as few as 474 names, no error raised
+  - Names contributing to weights: min 491, median 499, max 503 after the rename fix, was min 474. We still reconstruct a 500-name index with as few as 491 names
+  - `validation.py` now reports this on every run, so it is no longer silent, but the underlying holes remain
   - `w.sum(axis=1) == 1` is a vacuous check, it can never fail because the denominator is built from whatever survived
   - Renormalising a dropped name assumes it returned the index average that day, which is wrong but doesn't have severe consequences, so errors show as noise rather than collapse
 
-- Ticker renames break share data, 29 tickers, 6816 ticker-days
-  - All have complete prices and zero `nan_closes`, only share counts are missing
-  - Yahoo carries price history back under the new symbol, but `get_shares_full` only records from the rename date forward
-  - MRSH (Marsh McLennan) shares from 2025-06-30, prices from 2022-01-03, 874 of 1178 days dropped
-  - VMRK (Vivmark Residential) shares from 2025-06-30, 874 days
-  - PSKY (Paramount Skydance) shares from 2025-03-31, 812 days
-  - XYZ (Block, formerly SQ) shares from 2025-01-22, 765 days
-  - EXE (Expand Energy) 2024-10-03, SW (Smurfit Westrock) 2024-07-08
-  - MRSH and VMRK sharing 2025-06-30 suggests Yahoo backfilled a batch of renames at once, so the cutoff is a record-keeping artifact
-  - Most fixable problem found, the data exists under the old ticker, it is symbol mapping not missing data
+- Fixed: ticker renames
+  - Yahoo carries price history back under a new symbol, but `get_shares_full` only files from the rename date forward, so the early period had prices with no share count
+  - 15 renames mapped in `RENAMES` (config.py), fetched under the old symbol and merged with `combine_first` so current filings win
+  - META was FB, ELV was ANTM, BALL was BLL, WBD was DISCA, WTW was WLTW, RVTY was PKI, EG was RE, CPAY was FLT, XYZ was SQ, PSKY was PARA, EXE was CHK, MRSH was MMC, VMRK was AVB, TKO was WWE, SW was WRK
+  - Every old symbol still returns share data from yfinance, each series ending at its rename date
+  - Coverage: 6816 ticker-days missing across 24 tickers to 96 across 10. Universe min 477 to 491, median 493 to 499
+  - Daily tracking: TE stdev 8.60bp to 7.75bp, worst day 79.5bp to 54.2bp, correlation 0.99689 to 0.99746, 2022 TE 13.42bp to 10.69bp
+  - Cumulative gap went the other way, -88.8bp to -256.3bp, because 2022's +1.66pp error was partly cancelling 2024's -2.86pp. Removing it exposed the real size of what remains, it is not a regression
+  - `RENAMES` is hardcoded and found by hand. Any new rename will silently reopen the same hole
 
-- META missing for 109 trading days
-  - Priced from day one but no share count until 2022-06-09, so a top-10 company is absent from the index for the first ~109 days of 2022
-  - Main driver of 2022's 13.42bp TE, and META still appears in worst-day drivers for 2024
-  - ELV 122 missing share-days, BALL 88, same shape
-  - `implied_shares` cannot help: `get_valuation_measures` reaches back only 5 quarters from today, so it works at the window's end, not its start
+- Remaining coverage holes: spinoff listing lag, 96 ticker-days across 10 tickers
+  - A company lists and trades for a few days before Yahoo files its first share count
+  - PSKY 33d, GEHC 13d, CEG 12d, HONA 10d, Q 7d, SNDK 7d, FDXF 4d, GEV 4d, SOLV 4d, KVUE 2d
+  - Different fix from renames: there is no old symbol, so the first known value would have to be carried backwards
+  - Small, and backfilling means asserting a share count for days before it was reported
 
 - 11 tickers start after the window opens
   - CEG 2022-01-19, GEHC 2022-12-15, KVUE 2023-05-04, VLTO 2023-10-04, RDDT 2024-03-21, SOLV 2024-03-26, GEV 2024-03-27, SNDK 2025-02-13, Q 2025-10-27, FDXF 2026-05-27, HONA 2026-06-15
@@ -52,15 +52,16 @@
   - `pct_change` gives NaN on a stock's first day, so new entrants correctly contribute nothing on day one
 
 - Constituent count is inaccurate
-  - Priced names per year, minimum: 2022 492, 2023 494, 2024 496, 2025 499, 2026 501
-  - Reconstructing a 500-name index with 492 names, and they are the wrong 492 since names were added / removed
+  - Usable names per day: min 491, median 499, max 503
+  - Still short of 500 on 788 of 1179 days, and they are not the right names since names were added / removed
 
 - Worst days are driven by mega-caps, not obscure names
-  - 2022-02-03 +79.5bp: MSFT -27.0bp, AAPL -14.2bp, TMUS +4.1bp
-  - 2024-02-22 -54.4bp: MSFT +17.1bp, AMZN +15.2bp, META +11.2bp
-  - 2022-04-20 +53.0bp: TSLA -5.3bp, DIS -4.0bp, PYPL -3.1bp
-  - 2024-05-23 -49.9bp: AAPL -14.1bp, GOOGL -8.0bp, MSFT -6.0bp
-  - Our AAPL weight was 8.47% on 2022-02-03 against roughly 7% in the real index
+  - 2024-02-22 -54.2bp: MSFT +17.1bp, AMZN +15.1bp, META +11.2bp
+  - 2024-05-23 -49.8bp: AAPL -14.0bp, GOOGL -8.0bp, MSFT -6.0bp
+  - 2024-04-19 +49.4bp: META -12.7bp, AMZN -11.5bp, MSFT -9.3bp
+  - 2023-05-25 -49.2bp: MSFT +25.9bp, GOOGL +9.5bp, AMD +5.6bp
+  - 2022-02-04 -43.0bp: MSFT +10.2bp, BAC +4.4bp, JPM +3.3bp
+  - MSFT appears in all five, so its weight is the most likely single culprit
   - Removed companies are missing from our denominator, so survivors absorb their weight and the distortion lands hardest on the largest names
 
 - Fixed: dual-class double counting
@@ -89,8 +90,8 @@
   - We have no divisor, so those events leak into our series
   - Self-check needing no external data: `(weights.shift(1) * closes.pct_change()).sum(axis=1)` vs `caps.sum(axis=1).pct_change()`
   - They agree to a hundredth of a bp except on days a share count changed
-  - 433 such days over the 2022 window, largest 2024-06-10 at -595.7bp, 2022-07-18 -440.7bp, 2022-06-06 -371.6bp
-  - Some are genuine corporate actions, some are share data appearing or vanishing mid-series, the same defect as META in another guise
+  - 437 such days over the window, largest 2024-06-10 at -593.2bp, 2022-07-18 -437.8bp, 2022-06-06 -361.5bp
+  - The rename fix barely moved this count, so most of these are genuine share changes rather than data arriving
   - The weighted figure is the correct one, issuance does not make a holder richer
 
 - Remaining 3: survivorship and membership timing
@@ -108,10 +109,11 @@
   - Blending dual-class prices instead of dropping the second class: 0.1bp
 
 - Not diverging
-  - Correlation 0.99689 over 1178 days means the mechanics are sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
-  - Residual is dominated by data quality (renames, float, point-in-time membership), not construction logic
+  - Correlation 0.99746 over 1179 days means the mechanics are sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
+  - Residual is dominated by data quality (point-in-time membership, float), not construction logic
 
-- Fix priority when we start
-  - Make the pipeline loud first: assert constituent count, assert no top-50 name is missing, warn when the universe drops below a threshold.
-  - Then ticker renames, the largest and most tractable data hole
-  - Then historical membership, which the year-by-year gradient says is the structural limit
+- Fix priority
+  - Next: 2024, now the largest single item at -2.91pp and untouched by anything so far. MSFT appears in all five worst days
+  - Then historical membership, which the year gradient says is the structural limit
+  - Then spinoff listing lag (96 ticker-days) and float adjustment, both small and both requiring a judgement call rather than better data
+  - Housekeeping: `SECOND_CLASS` and `RENAMES` are both hardcoded lists that will silently go stale, and `--refresh` only reaches pipeline.py so changing START and running analysis.py returns the old window from cache
