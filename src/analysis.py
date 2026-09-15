@@ -23,8 +23,23 @@ def index_level(returns, base=100.0):
     return base * (1 + returns.fillna(0)).cumprod()
 
 
+# Rebase a series so it starts at `base`, making two levels comparable
+def rebase(series, base=100.0):
+    return series / series.iloc[0] * base
+
+
+# Line up our reconstruction against the published index
+def compare(level, benchmark):
+    return pd.DataFrame({
+        "reconstructed": level,
+        "published": rebase(benchmark, level.iloc[0]),   # Same starting point, so only the paths differ
+        "our_return": level.pct_change() * 100,
+        "their_return": benchmark.pct_change() * 100,
+    }).assign(diff_bp=lambda d: (d.our_return - d.their_return) * 100)
+
+
 if __name__ == "__main__":
-    _, closes, shares = build()
+    _, closes, shares, benchmark = build()
 
     caps = market_caps(closes, shares)
     w = weights(caps)
@@ -41,3 +56,14 @@ if __name__ == "__main__":
 
     print("\nIndex level:")
     print(level.round(2).tail())
+
+    cmp = compare(level, benchmark)
+    print("\nVs published (^GSPC):")
+    print(cmp.round(3).tail())
+
+    daily = cmp["diff_bp"].dropna()
+    total = (level.iloc[-1] / level.iloc[0] - 1) * 100
+    published = (benchmark.iloc[-1] / benchmark.iloc[0] - 1) * 100
+    print(f"\nOver {len(level)} days: ours {total:+.2f}%, published {published:+.2f}%, gap {(total - published) * 100:+.1f} bp")
+    print(f"Daily tracking error: mean {daily.mean():+.2f} bp, stdev {daily.std():.2f} bp, worst {daily.abs().max():.1f} bp")
+    print(f"Correlation of daily returns: {cmp.our_return.corr(cmp.their_return):.5f}")

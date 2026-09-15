@@ -9,6 +9,7 @@ import yfinance as yf
 
 INDEX_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 START = "2026-08-01"
+BENCHMARK = "^GSPC"          # The published price-return index, so no dividends, matching auto_adjust=False
 SHARES_LOOKBACK_DAYS = 400 # Filings are usually quarterly, so we look back far enough to catch one before START
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -37,6 +38,16 @@ def fetch_prices(tickers, start=START):
         group_by="ticker",     
         threads=True,
     )
+
+# Download the published S&P 500 level to compare our reconstruction against
+def fetch_benchmark(start=START):
+    h = yf.Ticker(BENCHMARK).history(start=start, end=None, auto_adjust=False)[["Close"]]
+
+    if h.index.tz is not None:
+        h.index = h.index.tz_localize(None)     # Match the tz-naive price calendar
+    h.index = h.index.normalize()
+    
+    return h
 
 
 # Derive shares from the quarterly valuation table, used to patch gaps in filing outstanding shares data
@@ -118,6 +129,11 @@ def fetch_shares(tickers, window_start):
 def clean_closes(prices):
     return prices.xs("Close", axis=1, level=1).sort_index()
 
+# Reduce the benchmark to a single Close series on our trading calendar
+def clean_benchmark(raw_benchmark, index):
+    return raw_benchmark["Close"].reindex(index)
+
+
 # Spread sparse filing dates across every trading day in the price window
 def align_shares(raw_shares, index):
     return (
@@ -151,17 +167,21 @@ def build(refresh=False):
         RAW_DIR / "shares.parquet", lambda: fetch_shares(tickers, index.min()), refresh
     )
 
+    raw_benchmark = cached(RAW_DIR / "benchmark.parquet", fetch_benchmark, refresh)
+
     # Clean layer is cheap to rebuild, so we always redo it rather than caching a stale version
     print("clean:")
     closes = clean_closes(prices)
     shares = align_shares(raw_shares, index)
+    benchmark = clean_benchmark(raw_benchmark, index)
 
     CLEAN_DIR.mkdir(parents=True, exist_ok=True)
     closes.to_parquet(CLEAN_DIR / "closes.parquet")
     shares.to_parquet(CLEAN_DIR / "shares.parquet")
+    benchmark.to_frame().to_parquet(CLEAN_DIR / "benchmark.parquet")  # to_frame since parquet needs a table
     print(f"  wrote closes.parquet {closes.shape} and shares.parquet {shares.shape}")
 
-    return stocks, closes, shares
+    return stocks, closes, shares, benchmark
 
 
 if __name__ == "__main__":
