@@ -1,10 +1,16 @@
 import pandas as pd
 from data import build
 
+# yfinance reports the whole company's share count for every share class, so a
+# second class would double count the company. We keep one class per company, whose
+# total shares priced at that class already give the full market cap.
+SECOND_CLASS = ["GOOG", "FOX", "NWS"]
+
 
 # Market value of every company on every day
 def market_caps(closes, shares):
-    return closes * shares
+    caps = closes * shares
+    return caps.drop(columns=SECOND_CLASS, errors="ignore")
 
 # Each company's share of total index market value
 def weights(caps):
@@ -13,7 +19,7 @@ def weights(caps):
 
 # Weighted average of constituent returns, using the prior day's weights
 def index_returns(closes, w):
-    stock_returns = closes.pct_change()
+    stock_returns = closes.pct_change().reindex(columns=w.columns)   # Match the deduplicated universe
     lagged = w.shift(1)                         # Yesterday's weights earn today's returns
     return (lagged * stock_returns).sum(axis=1, min_count=1)
 
