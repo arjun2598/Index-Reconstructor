@@ -16,7 +16,7 @@
   - Same for FOXA/FOX and NWSA/NWS
   - Detected with `last = shares.iloc[-1]; last[last.duplicated(keep=False)]`
   - Fix: keep one class per company (`SECOND_CLASS` in analysis.py). Retained class already carries total company shares, so its market cap is the full company
-  - `SECOND_CLASS` is hardcoded to today's three pairs, needs to become detection when we extend to 2015
+  - `SECOND_CLASS` is hardcoded to today's three pairs, needs to become detection as the horizon widens
 
 - Remaining 1: float adjustment, the largest residual
   - S&P weights by shares available to public, excluding insider and strategic holdings

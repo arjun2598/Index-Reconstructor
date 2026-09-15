@@ -8,7 +8,7 @@ import requests
 import yfinance as yf
 
 INDEX_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-START = "2026-08-01"
+START = "2022-01-01"
 BENCHMARK = "^GSPC"          # The published price-return index, so no dividends, matching auto_adjust=False
 SHARES_LOOKBACK_DAYS = 400 # Filings are usually quarterly, so we look back far enough to catch one before START
 
@@ -186,7 +186,7 @@ def build(refresh=False):
 
 if __name__ == "__main__":
     refresh = "--refresh" in sys.argv           # Force a re-fetch, ignoring whatever is cached
-    stocks, closes, shares = build(refresh)
+    stocks, closes, shares, benchmark = build(refresh)
 
     print(f"\n{len(stocks)} constituents | {closes.index.min().date()} to {closes.index.max().date()}")
     print(closes.iloc[:3, :4])
