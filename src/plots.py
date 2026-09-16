@@ -74,7 +74,8 @@ def plot_fix_ladder():
                 ha="center", color=INK, fontsize=10, fontweight="600")
 
     style(ax, "Each fix cut the tracking error",
-          "Daily tracking error vs ^GSPC, standard deviation in basis points", "bp")
+          "Daily tracking error vs ^GSPC in basis points, each measured on the 2022-2026 "
+          "window as the fix landed", "bp")
     ax.set_ylim(0, max(values) * 1.18)
     save(fig, "1_fix_ladder.png")
 
