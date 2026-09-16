@@ -2,23 +2,32 @@
 
 ## Current state
 
-- Window: 1179 trading days, 2022-01-03 to 2026-09-15
-- Correlation of daily returns: 0.99978
-- Daily tracking error: stdev 2.34bp, mean +0.03bp, worst day 14.1bp
-- Cumulative: ours +58.51%, published +58.12%, gap +39.6bp
+- Window: 2690 trading days, 2016-01-04 to 2026-09-15
+- Correlation of daily returns: 0.99957
+- Daily tracking error: stdev 3.30bp, mean +0.07bp, worst day 40.4bp
+- Cumulative: ours +283.72%, published +276.78%, gap +694.2bp
+
+- 2016 is the floor, not a choice. `get_shares_full` returns nothing before October 2015 for AAPL or MSFT however far back you ask. At a 2015 start the median day had 3 usable members and 333 members a day had a price but no share count
 
 - Benchmark is `^GSPC`, the price-return index
   - Excludes dividends, matching our `auto_adjust=False` price pull
   - `^SP500TR` includes dividends and would drift above us by the dividend yield
   - `SPY` and `VOO` are funds with their own tracking error, so they measure someone else's error as well as ours
 
-- By year, all of it now small and mixed in sign
-  - 2022: TE 2.56bp, mean -0.17bp, gap -0.38pp
-  - 2023: TE 1.97bp, mean +0.22bp, gap +0.67pp
-  - 2024: TE 1.77bp, mean +0.22bp, gap +0.68pp
-  - 2025: TE 2.26bp, mean +0.00bp, gap -0.00pp
-  - 2026: TE 3.18bp, mean -0.20bp, gap -0.40pp
-  - Mean daily difference across the whole window is +0.03bp, which is indistinguishable from zero. There is no systematic drift left
+- By year
+  - 2016: TE 4.18bp, mean +0.09bp, gap +0.28pp
+  - 2017: TE 2.77bp, mean +0.39bp, gap +1.17pp
+  - 2018: TE 2.97bp, mean +0.34bp, gap +0.78pp
+  - 2019: TE 2.84bp, mean +0.08bp, gap +0.27pp
+  - 2020: TE 6.45bp, mean -0.21bp, gap -0.53pp
+  - 2021: TE 2.48bp, mean -0.06bp, gap -0.19pp
+  - 2022: TE 2.61bp, mean -0.16bp, gap -0.36pp
+  - 2023: TE 1.98bp, mean +0.21bp, gap +0.66pp
+  - 2024: TE 1.77bp, mean +0.21bp, gap +0.66pp
+  - 2025: TE 2.30bp, mean -0.02bp, gap -0.08pp
+  - 2026: TE 3.18bp, mean -0.21bp, gap -0.42pp
+  - 2020 is the weakest year, which is the pandemic crash and a period of heavy issuance
+  - Tracking is worse on this window than on 2022-2026 (3.30bp vs 2.34bp) and that is coverage, not regression. Usable members run 383-405 in 2016 against 469-481 in 2022, since more removed companies are unpriceable the further back we go
 
 - Judge changes by TE stdev, not the cumulative gap
   - Yearly errors of opposite sign cancel, so the gap can look small while the underlying errors are large
@@ -42,6 +51,19 @@
   - Fix: `fetch_splits` in download.py, `split_factors` and `adjust_shares` in cleaning.py. Each day is scaled by the product of every split ratio dated after it, putting shares on the same basis as prices. Multiple splits compound, splits predating the window contribute nothing
   - TE stdev 7.75 to 4.06bp, worst day 54.2 to 16.0bp, correlation 0.99746 to 0.99950
   - 2024 went from the worst year (10.20bp) to near the best (3.47bp)
+
+- Split-boundary repair
+  - `split_factors` assumed everything before a split's effective date is on the pre-split basis. BKNG disproved it: post-split counts appear from early February for an April 2026 split, then pre-split counts again in late March. The series flip-flops, so no single boundary is right
+  - Scaling an already-adjusted count by 25 gave BKNG a $4tn market cap and about 6% of the index, and produced 2026's -49bp worst day
+  - First attempt derived the boundary from where the share count actually steps. That fixed March and April but not February, because the series is not monotonic
+  - `repair_double_adjusted` scales first, then looks within 150 days before each split for values that came out a whole split ratio too large against the settled post-split level, and divides them back down. The window is narrow so genuine share changes elsewhere, which the issuance signal depends on, are untouched
+  - 2026 TE 7.48 to 3.18bp, gap -1.67 to -0.42pp. Whole window TE 3.52 to 3.30bp
+  - This was already documented below as a known defect, but the TPL case made it look like a one or two day nuisance. At BKNG's scale it corrupted months
+
+- Rate-limit retry
+  - The 2016 universe is 747 tickers and 16 workers triggered YFRateLimitError, which failed in the worst possible way: `_filed_shares` catches every exception and returns None, so a limited run silently produces a panel missing whole tickers
+  - `with_retry` backs off 20s, 40s, 60s, 80s across five attempts on rate-limit errors only. `MAX_WORKERS` 16 to 6
+  - Not a tracking fix, a correctness one. Without it the panel quality depends on whether Yahoo was busy
 
 - Addition timing, since superseded by full membership
   - 77 of today's 503 members joined after 2022-01-03, roughly 15 a year, and all were held from day one. Companies are added because they grew enough to qualify, so holding them early captures the run-up that earned them a place
@@ -70,8 +92,8 @@
 ## Remaining defects
 
 - Companies Yahoo will not price, about 3% of the index
-  - We now know who was a member and when, but 47 tickers have no price data at all: 17297 member-days, roughly 15 names at any time
-  - EA 1148d, CTRA 1089d, HOLX 1069d, K 989d, IPG 980d are the largest
+  - We now know who was a member and when, but 169 tickers have no price data at all: 122312 member-days over the 2016 window
+  - EA 2659d, CTRA 2600d, HOLX 2521d, K 2500d, IPG 2491d are the largest
   - These are companies acquired (ATVI, CERN, XLNX, PXD), failed (SIVB, FRC, SBNY) or taken private. Yahoo drops the symbol once it stops trading
   - They are correctly marked as members and simply fall out of the weights, so the error is bounded and named rather than hidden
   - Ticker reuse is a live hazard here: SBNY returns 521 rows starting 2024, which is a different company using Signature Bank's old symbol after it failed in 2023. The membership mask handles it, since we only use data while a name was a member, but a naive universe expansion would inject the wrong prices
@@ -91,15 +113,14 @@
   - Detectable without external data: `(weights.shift(1) * closes.pct_change()).sum(axis=1)` against `caps.sum(axis=1).pct_change()`. Price cancels algebraically between the two, so any difference is a share-count change
   - 443 such days over the window, largest 2024-06-25 at -885.6bp and 2024-06-26 at +843.5bp
 
-- Share filings near split boundaries
-  - The split factor is correct, but Yahoo's filing dates do not always sit on the expected side of a split
-  - TPL filed a post-split count one day early and a pre-split count on the split date, so our cap read $39.67B then $4.42B against a true ~$13B
-  - 67 member-days across 40 tickers move the share count more than 1.5x in a day. Often self-cancelling, so invisible in the cumulative gap but real noise now that TE is 2.51bp
+- Share filings near split boundaries, now largely repaired
+  - The split factor is correct, but Yahoo's filing dates do not sit on the expected side of a split. See the split-boundary repair above
+  - What is left: 165 member-days across 87 tickers still move the share count more than 1.5x in a day
   - `check_share_jumps` reports these. It is a heuristic, not a missing-data check: a genuine large issuance can trip it
-  - Fix would be to widen the split boundary a few days and take whichever filing agrees with its neighbours
+  - The backtest excludes any name flagged this way for the whole 252-day lookback, so the residual affects the index weights but not the strategy signal
 
 - Spinoff listing lag
-  - 45 member-days across 10 tickers where a company lists and trades before Yahoo files its first share count. PSKY 33d is most of it
+  - 15863 member-days across 42 tickers where a company lists and trades before Yahoo files its first share count. PSKY 33d is most of it
   - No old symbol to fall back on, so a fix means carrying the first known value backwards, which asserts a share count for days before it was reported
 
 - Share count timing
@@ -119,7 +140,7 @@
   - Our market caps are not the problem. Cross-checked against Yahoo's own `marketCap` for the nine largest names, every one matches within 1%
 
 - What is not diverging
-  - Correlation 0.99978 over 1179 days means the construction is sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
+  - Correlation 0.99957 over 2690 days means the construction is sound: elementwise market cap, row-normalised weights, one-day weight lag, compounding
   - The residual is data quality, not index logic
 
 - Housekeeping
