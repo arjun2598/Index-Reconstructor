@@ -1,5 +1,6 @@
 # Each fetch returns exactly what the source gave us. Reshaping is done in cleaning.py.
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 
@@ -29,6 +30,17 @@ def cached(path, fetch, refresh=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)
     return df
+
+# yfinance rate limits a large universe, and a limited request raises rather than
+# returning empty, so retry to avoid losing tickers
+def with_retry(call, attempts=5, wait=20):
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as error:
+            if "RateLimit" not in type(error).__name__ or attempt == attempts - 1:
+                raise
+            time.sleep(wait * (attempt + 1))    # 20s, 40s, 60s, 80s
 
 # yfinance returns tz-aware timestamps, our price calendar is reset to tz-naive at midnight
 def to_naive_days(index):
@@ -78,7 +90,7 @@ def fetch_prices(tickers, start=START):
 
 # The published index level we compare our reconstruction against
 def fetch_benchmark(start=START):
-    h = yf.Ticker(BENCHMARK).history(start=start, end=None, auto_adjust=False)[["Close"]]
+    h = with_retry(lambda: yf.Ticker(BENCHMARK).history(start=start, end=None, auto_adjust=False))[["Close"]]
     h.index = to_naive_days(h.index)
     return h
 
@@ -114,7 +126,7 @@ def implied_shares(ticker):
 # One ticker's filed share counts, cleaned but still only on filing dates
 def _filed_shares(ticker, start):
     try:
-        s = yf.Ticker(ticker).get_shares_full(start=start, end=None)
+        s = with_retry(lambda: yf.Ticker(ticker).get_shares_full(start=start, end=None))
     except Exception:
         return None
     
@@ -165,7 +177,7 @@ def fetch_shares(tickers, window_start):
 def fetch_splits(tickers):
     def one(ticker):
         try:
-            splits = yf.Ticker(ticker).splits
+            splits = with_retry(lambda: yf.Ticker(ticker).splits)
         except Exception:
             return []
         

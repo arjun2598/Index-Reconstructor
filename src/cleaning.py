@@ -32,15 +32,43 @@ def split_factors(splits, index, columns):
     for row in splits.itertuples():
         if row.ticker not in factors.columns:
             continue
-        earlier = factors.index < row.date      # Days on or after the split are already on the new basis
+        earlier = factors.index < row.date      # Days on or after the split are already adjusted
         factors.loc[earlier, row.ticker] *= row.ratio
 
     return factors
 
 
+# Yahoo does not switch to post-split counts on the effective date. BKNG's April 2026
+# split shows post-split counts from early February, and pre-split ones again in late
+# March, so no single boundary is right. Scaling those already-adjusted counts by 25
+# gave BKNG a $4tn market cap and 6% of the index.
+#
+# So after scaling, look near each split for counts that came out a whole split ratio
+# too large and divide them back down. The window is narrow so genuine share changes
+# elsewhere, which the issuance signal depends on, are untouched.
+def repair_double_adjusted(adjusted, splits, window=150, tolerance=0.2):
+    for row in splits.itertuples():
+        if row.ticker not in adjusted.columns or row.ratio <= 1:
+            continue
+
+        column = adjusted[row.ticker]
+        after = column[(column.index >= row.date)
+                       & (column.index < row.date + pd.Timedelta(days=30))].dropna()
+        if after.empty:
+            continue
+
+        settled = after.median()                # What the count really is once the split lands
+        near = (column.index > row.date - pd.Timedelta(days=window)) & (column.index < row.date)
+        too_big = near & (column / settled > row.ratio * (1 - tolerance))
+        adjusted.loc[too_big, row.ticker] = column[too_big] / row.ratio
+
+    return adjusted
+
+
 # Restate share counts onto the same basis as the prices
 def adjust_shares(shares, splits):
-    return shares * split_factors(splits, shares.index, shares.columns)
+    scaled = shares * split_factors(splits, shares.index, shares.columns)
+    return repair_double_adjusted(scaled, splits)
 
 
 # Reduce the benchmark to a single Close series on our trading calendar

@@ -6,7 +6,7 @@ INDEX_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies" # Source
 CHANGES_URL = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"  # Additions and removals by date
 BENCHMARK = "^GSPC"         # The published price-return index, no dividends, matching auto_adjust=False
 
-START = "2022-01-01" # Start of time period
+START = "2016-01-01" # Start of time period
 SHARES_LOOKBACK_DAYS = 400  # Filings are usually quarterly, so look back far enough to catch one before START
 
 # yfinance reports the whole company's share count against every share class, so a
@@ -42,4 +42,4 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"      # Exact data from yfinance, never edited
 CLEAN_DIR = DATA_DIR / "clean"  # Derived dataframes, rebuilt from raw 
 
-MAX_WORKERS = 16            # yfinance has no bulk endpoint for shares, so we parallelise per ticker
+MAX_WORKERS = 6             # yfinance rate limits above this on a large universe
